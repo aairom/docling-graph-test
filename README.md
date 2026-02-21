@@ -32,6 +32,7 @@ The application will be available at **http://localhost:7860**
 All documentation is available in the [`Docs/`](Docs/) directory:
 
 - **[Quick Start Guide](Docs/QUICKSTART.md)** - Get started in 5 minutes
+- **[Template Guide](Docs/TEMPLATE_GUIDE.md)** - 📋 Create and use custom extraction templates
 - **[Environment Setup](Docs/ENVIRONMENT_SETUP.md)** - Configure providers and API keys
 - **[Full Documentation](Docs/FULL_DOCUMENTATION.md)** - Comprehensive guide with all features
 - **[User Guide](Docs/user-guide.md)** - Complete usage instructions
@@ -44,13 +45,15 @@ All documentation is available in the [`Docs/`](Docs/) directory:
 
 ## ✨ Key Features
 
-- 🎯 **Intuitive Web UI** - User-friendly Gradio interface
+- 📋 **Domain-Specific Templates** - Pre-built templates for invoices, research papers, ID cards, insurance contracts
+- 🎯 **Intuitive Web UI** - User-friendly Gradio interface with template selection
 - 📄 **Multiple Formats** - PDF, images, markdown, Office documents
 - 🔄 **Batch Processing** - Process multiple documents simultaneously
 - 🧠 **Multiple LLM Providers** - Ollama (local), watsonx, OpenAI, Mistral, Gemini
 - 🔧 **Environment Configuration** - Easy setup with .env file
 - 📊 **Interactive Graphs** - Visualize knowledge graphs
 - 💾 **Multiple Exports** - CSV, JSON, HTML formats
+- 🎨 **Extensible** - Create custom templates for your specific document types
 - 🐳 **Container Ready** - Docker and Kubernetes support
 
 ## 🎯 Use Cases
