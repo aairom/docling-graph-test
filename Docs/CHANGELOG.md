@@ -1,12 +1,14 @@
 # Changelog
 
-## [Enhanced UI] - 2026-02-21
+## [Enhanced UI + watsonx Support] - 2026-02-21
 
 ### Added
 - **Dynamic Ollama Model Detection**: The application now automatically fetches and displays all available Ollama models from your local installation
 - **Model Refresh Button**: Added "🔄 Refresh Ollama Models" button to update the model list without restarting the app
 - **Provider-Specific Configuration**: UI now adapts based on selected provider (Ollama vs remote providers)
-- **API Key Configuration**: Added secure API key input fields for remote providers (OpenAI, Mistral, Gemini)
+- **watsonx Provider Support**: Added IBM watsonx as a provider option with configuration via .env file
+- **Environment Configuration**: Created `.env.template` for easy configuration of all providers
+- **API Key Configuration**: Added secure API key input fields for remote providers (OpenAI, Mistral, Gemini, watsonx)
 - **Ollama Status Indicator**: Real-time status display showing if Ollama is running and how many models are available
 - **Enhanced Help Documentation**: Updated help tab with detailed information about model selection and provider configuration
 
@@ -46,9 +48,10 @@
 5. **Organization**: All documentation in one place (`/Docs` folder)
 
 ### Files Modified
-- `app.py` - Enhanced with dynamic model detection and improved UI
+- `app.py` - Enhanced with dynamic model detection, watsonx support, and environment variable loading
 - `requirements.txt` - Added requests library
-- `README.md` - Updated with links to all documentation in `/Docs`
+- `README.md` - Updated with links to all documentation in `/Docs` and configuration instructions
+- Created `.env.template` - Environment configuration template
 - Created `Docs/CHANGELOG.md` - This file
 
 ### Files Moved to /Docs
@@ -67,12 +70,21 @@
 5. Choose your model from the dropdown
 6. Click "🔄 Refresh Ollama Models" if you pull new models
 
-### Using Remote Providers
-1. Launch app: `python3 app.py`
-2. Select provider (openai, mistral, or gemini)
-3. Enter your API key in the configuration section
-4. Type the model name (e.g., "gpt-4", "mistral-large-latest")
-5. Process your documents
+### Using watsonx
+1. Copy `.env.template` to `.env`
+2. Set `WO_INSTANCE` and `WO_API_KEY` in `.env`
+3. Launch app: `python3 app.py`
+4. Select "watsonx" as provider
+5. Choose your watsonx model
+6. Process your documents
+
+### Using Other Remote Providers
+1. Copy `.env.template` to `.env` (optional, can also enter in UI)
+2. Launch app: `python3 app.py`
+3. Select provider (openai, mistral, or gemini)
+4. Enter your API key in the configuration section
+5. Type the model name (e.g., "gpt-4", "mistral-large-latest")
+6. Process your documents
 
 ## Migration Notes
 

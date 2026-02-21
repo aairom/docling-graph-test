@@ -7,14 +7,20 @@ import os
 import sys
 from pathlib import Path
 from datetime import datetime
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Any, Type
 import json
 import traceback
 import requests
+import importlib.util
+from dotenv import load_dotenv
 
 import gradio as gr
 from rich.console import Console
 from rich.panel import Panel
+from pydantic import BaseModel
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add project root to path
 project_root = Path(__file__).parent
@@ -32,14 +38,30 @@ console = Console()
 INPUT_DIR = project_root / "input"
 OUTPUT_DIR = project_root / "output"
 SAMPLES_DIR = project_root / "_samples"
+TEMPLATES_DIR = project_root / "templates"
 
 # Ensure directories exist
 INPUT_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
+TEMPLATES_DIR.mkdir(exist_ok=True)
 
-# Ollama configuration for local LLM
-OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "granite4"
+# Load configuration from environment variables
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "granite4")
+
+# watsonx Orchestrate configuration
+WO_DEVELOPER_EDITION_SOURCE = os.getenv("WO_DEVELOPER_EDITION_SOURCE", "orchestrate")
+WO_INSTANCE = os.getenv("WO_INSTANCE", "")
+WO_API_KEY = os.getenv("WO_API_KEY", "")
+
+# Remote API keys
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+# Application settings
+GRADIO_SERVER_PORT = int(os.getenv("GRADIO_SERVER_PORT", "7860"))
+GRADIO_SERVER_NAME = os.getenv("GRADIO_SERVER_NAME", "0.0.0.0")
 
 
 def get_ollama_models() -> List[str]:
@@ -75,6 +97,100 @@ def get_timestamp() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
+def load_template_from_file(template_path: Path) -> Optional[Type[BaseModel]]:
+    """
+    Dynamically load a Pydantic template class from a Python file.
+    
+    Args:
+        template_path: Path to the template Python file
+        
+    Returns:
+        The root template class (BaseModel subclass) or None if not found
+    """
+    try:
+        # Load the module
+        spec = importlib.util.spec_from_file_location(template_path.stem, template_path)
+        if spec is None or spec.loader is None:
+            console.print(f"[yellow]Warning: Could not load spec for {template_path.name}[/yellow]")
+            return None
+            
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        
+        # Find the root template class (usually the last BaseModel class defined)
+        # Look for classes with graph_id_fields in model_config
+        template_classes = []
+        for name in dir(module):
+            obj = getattr(module, name)
+            if (isinstance(obj, type) and
+                issubclass(obj, BaseModel) and
+                obj is not BaseModel):
+                # Check if it has graph_id_fields (indicates it's a root entity)
+                if hasattr(obj, 'model_config'):
+                    config = obj.model_config
+                    if isinstance(config, dict) and 'graph_id_fields' in config:
+                        template_classes.append(obj)
+        
+        # Return the last one found (usually the root document class)
+        if template_classes:
+            return template_classes[-1]
+        
+        console.print(f"[yellow]Warning: No root template class found in {template_path.name}[/yellow]")
+        return None
+        
+    except Exception as e:
+        console.print(f"[red]Error loading template {template_path.name}: {str(e)}[/red]")
+        return None
+
+
+def get_available_templates() -> Dict[str, Dict[str, Any]]:
+    """
+    Get all available templates from templates directory and _samples.
+    
+    Returns:
+        Dictionary mapping template names to their info (path, class, description)
+    """
+    templates = {}
+    
+    # Load from templates directory
+    if TEMPLATES_DIR.exists():
+        for template_file in TEMPLATES_DIR.glob("*.py"):
+            if template_file.name.startswith("_"):
+                continue
+            
+            template_class = load_template_from_file(template_file)
+            if template_class:
+                # Extract description from docstring
+                description = template_class.__doc__ or "No description available"
+                description = description.strip().split('\n')[0]  # First line only
+                
+                templates[template_file.stem] = {
+                    "name": template_file.stem.replace("_", " ").title(),
+                    "path": template_file,
+                    "class": template_class,
+                    "description": description,
+                    "source": "templates"
+                }
+    
+    # Load from _samples directory
+    if SAMPLES_DIR.exists():
+        for template_file in SAMPLES_DIR.glob("*_template.py"):
+            template_class = load_template_from_file(template_file)
+            if template_class:
+                description = template_class.__doc__ or "No description available"
+                description = description.strip().split('\n')[0]
+                
+                templates[f"sample_{template_file.stem}"] = {
+                    "name": f"Sample: {template_file.stem.replace('_', ' ').title()}",
+                    "path": template_file,
+                    "class": template_class,
+                    "description": description,
+                    "source": "_samples"
+                }
+    
+    return templates
+
+
 def list_input_files() -> List[str]:
     """List all files in the input directory."""
     if not INPUT_DIR.exists():
@@ -94,6 +210,7 @@ def process_document(
     use_chunking: bool,
     provider: str,
     model: str,
+    template_key: str,
     progress=gr.Progress()
 ) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
     """
@@ -106,6 +223,7 @@ def process_document(
         use_chunking: Whether to use chunking
         provider: LLM provider (ollama, mistral, openai, etc.)
         model: Model name
+        template_key: Key of the template to use
         progress: Gradio progress tracker
         
     Returns:
@@ -125,16 +243,23 @@ def process_document(
         if not source_path.exists():
             return f"Error: File not found: {file_path}", None, None, None
         
-        progress(0.1, desc="📋 Configuring pipeline...")
+        progress(0.1, desc="📋 Loading template...")
         
-        # Import a simple template for demonstration
-        # In production, you would use domain-specific templates
-        from _samples.simple_template import SimpleDocument
+        # Load the selected template
+        available_templates = get_available_templates()
+        if template_key not in available_templates:
+            return f"Error: Template '{template_key}' not found", None, None, None
+        
+        template_info = available_templates[template_key]
+        template_class = template_info["class"]
+        template_name = template_info["name"]
+        
+        progress(0.15, desc="📋 Configuring pipeline...")
         
         # Configure pipeline
         config_dict = {
             "source": str(source_path),
-            "template": SimpleDocument,
+            "template": template_class,
             "backend": backend,
             "inference": "remote" if provider != "ollama" else "remote",
             "processing_mode": processing_mode,
@@ -204,7 +329,7 @@ def process_document(
             f.write(f"# Document Processing Report\n\n")
             f.write(f"## Configuration\n\n")
             f.write(f"- **Source:** {file_path}\n")
-            f.write(f"- **Template:** SimpleDocument\n")
+            f.write(f"- **Template:** {template_name}\n")
             f.write(f"- **Backend:** {backend.upper()} ({'Large Language Model' if backend == 'llm' else 'Vision Language Model'})\n")
             f.write(f"- **Provider:** {provider}\n")
             f.write(f"- **Model:** {model}\n")
@@ -249,6 +374,7 @@ def process_document(
 
 ### 📋 Configuration
 - **Source:** {file_path}
+- **Template:** {template_name}
 - **Backend:** {backend.upper()} ({'Large Language Model' if backend == 'llm' else 'Vision Language Model'})
 - **Provider:** {provider}
 - **Model:** {model}
@@ -299,6 +425,7 @@ def batch_process_documents(
     use_chunking: bool,
     provider: str,
     model: str,
+    template_key: str,
     progress=gr.Progress()
 ) -> str:
     """
@@ -325,6 +452,7 @@ def batch_process_documents(
                 use_chunking,
                 provider,
                 model,
+                template_key,
                 progress=gr.Progress()
             )
             
@@ -351,6 +479,11 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
     ollama_running, ollama_status = check_ollama_status()
     available_models = get_ollama_models() if ollama_running else [OLLAMA_MODEL]
     
+    # Load available templates
+    available_templates = get_available_templates()
+    template_choices = {info["name"]: key for key, info in available_templates.items()}
+    template_descriptions = {info["name"]: info["description"] for key, info in available_templates.items()}
+    
     gr.Markdown(f"""
     # 🔍 Docling-Graph Showcase
     
@@ -363,6 +496,7 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
     - 🧠 Local LLM inference with Ollama or remote providers
     - 📊 Interactive graph visualization
     - 💾 CSV export for nodes and edges
+    - 📋 Multiple domain-specific templates
     
     ---
     """)
@@ -380,6 +514,19 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
                         info="Files from ./input directory"
                     )
                     refresh_btn = gr.Button("🔄 Refresh File List", size="sm")
+                    
+                    # Template selection
+                    template_dropdown = gr.Dropdown(
+                        choices=list(template_choices.keys()),
+                        value=list(template_choices.keys())[0] if template_choices else None,
+                        label="📋 Extraction Template",
+                        info="Choose a domain-specific template for structured extraction"
+                    )
+                    
+                    template_info = gr.Markdown(
+                        value=f"**Description:** {list(template_descriptions.values())[0] if template_descriptions else 'No templates available'}",
+                        visible=True
+                    )
                     
                     backend_radio = gr.Radio(
                         choices=["llm", "vlm"],
@@ -402,10 +549,10 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
                     )
                     
                     provider_dropdown = gr.Dropdown(
-                        choices=["ollama", "mistral", "openai", "gemini"],
+                        choices=["ollama", "watsonx", "mistral", "openai", "gemini"],
                         value="ollama",
                         label="Provider",
-                        info="LLM provider (ollama for local)"
+                        info="LLM provider (ollama for local, watsonx for IBM watsonx)"
                     )
                     
                     # Dynamic model selection based on provider
@@ -433,14 +580,14 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
                             value="",
                             label="API Key",
                             type="password",
-                            info="Required for OpenAI, Mistral, or Gemini",
-                            visible=False
+                            info="Required for watsonx, OpenAI, Mistral, or Gemini. Leave empty to use .env values.",
+                            placeholder="Enter API key or leave empty to use .env"
                         )
                         api_base_text = gr.Textbox(
                             value="",
                             label="API Base URL (optional)",
-                            info="Custom API endpoint if needed",
-                            visible=False
+                            info="Custom API endpoint if needed. Leave empty to use defaults.",
+                            placeholder="Optional: Custom API endpoint"
                         )
                     
                     process_btn = gr.Button("🚀 Process Document", variant="primary")
@@ -460,22 +607,19 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
                     models = get_ollama_models()
                     return (
                         gr.Dropdown(visible=True, choices=models, value=models[0] if models else OLLAMA_MODEL),
-                        gr.Textbox(visible=False),
-                        gr.Textbox(visible=False),
                         gr.Textbox(visible=False)
                     )
                 else:
-                    # For remote providers, show text input and API key
+                    # For remote providers, show text input for model name
                     default_models = {
+                        "watsonx": "ibm/granite-13b-chat-v2",
                         "openai": "gpt-4",
                         "mistral": "mistral-large-latest",
                         "gemini": "gemini-pro"
                     }
                     return (
                         gr.Dropdown(visible=False),
-                        gr.Textbox(visible=True, value=default_models.get(provider, "")),
-                        gr.Textbox(visible=True),
-                        gr.Textbox(visible=True)
+                        gr.Textbox(visible=True, value=default_models.get(provider, ""))
                     )
             
             def refresh_ollama_models():
@@ -496,7 +640,7 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
             provider_dropdown.change(
                 fn=update_model_inputs,
                 inputs=[provider_dropdown],
-                outputs=[model_dropdown, model_text, api_key_text, api_base_text]
+                outputs=[model_dropdown, model_text]
             )
             
             refresh_models_btn.click(
@@ -504,16 +648,31 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
                 outputs=model_dropdown
             )
             
-            # Modified process function to handle both model inputs
-            def process_with_model_selection(file_path, backend, mode, chunking, provider,
+            # Function to update template description
+            def update_template_info(template_name):
+                """Update template description when selection changes."""
+                if template_name and template_name in template_descriptions:
+                    return f"**Description:** {template_descriptions[template_name]}"
+                return "**Description:** No description available"
+            
+            template_dropdown.change(
+                fn=update_template_info,
+                inputs=[template_dropdown],
+                outputs=[template_info]
+            )
+            
+            # Modified process function to handle both model inputs and template
+            def process_with_model_selection(file_path, template_name, backend, mode, chunking, provider,
                                             model_dropdown_val, model_text_val, progress=gr.Progress()):
                 model = model_dropdown_val if provider == "ollama" else model_text_val
-                return process_document(file_path, backend, mode, chunking, provider, model, progress)
+                template_key = template_choices.get(template_name, list(template_choices.values())[0])
+                return process_document(file_path, backend, mode, chunking, provider, model, template_key, progress)
             
             process_btn.click(
                 fn=process_with_model_selection,
                 inputs=[
                     file_dropdown,
+                    template_dropdown,
                     backend_radio,
                     mode_radio,
                     chunking_check,
@@ -530,6 +689,19 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
             
             with gr.Row():
                 with gr.Column(scale=1):
+                    # Template selection for batch
+                    batch_template_dropdown = gr.Dropdown(
+                        choices=list(template_choices.keys()),
+                        value=list(template_choices.keys())[0] if template_choices else None,
+                        label="📋 Extraction Template",
+                        info="Choose a domain-specific template for structured extraction"
+                    )
+                    
+                    batch_template_info = gr.Markdown(
+                        value=f"**Description:** {list(template_descriptions.values())[0] if template_descriptions else 'No templates available'}",
+                        visible=True
+                    )
+                    
                     batch_backend = gr.Radio(
                         choices=["llm", "vlm"],
                         value="llm",
@@ -548,7 +720,7 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
                     )
                     
                     batch_provider = gr.Dropdown(
-                        choices=["ollama", "mistral", "openai", "gemini"],
+                        choices=["ollama", "watsonx", "mistral", "openai", "gemini"],
                         value="ollama",
                         label="Provider"
                     )
@@ -577,8 +749,14 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
                             value="",
                             label="API Key",
                             type="password",
-                            info="Required for OpenAI, Mistral, or Gemini",
-                            visible=False
+                            info="Required for watsonx, OpenAI, Mistral, or Gemini. Leave empty to use .env values.",
+                            placeholder="Enter API key or leave empty to use .env"
+                        )
+                        batch_api_base_text = gr.Textbox(
+                            value="",
+                            label="API Base URL (optional)",
+                            info="Custom API endpoint if needed. Leave empty to use defaults.",
+                            placeholder="Optional: Custom API endpoint"
                         )
                     
                     batch_btn = gr.Button("🚀 Process All Documents", variant="primary")
@@ -590,7 +768,7 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
             batch_provider.change(
                 fn=update_model_inputs,
                 inputs=[batch_provider],
-                outputs=[batch_model_dropdown, batch_model_text, batch_api_key_text, gr.Textbox(visible=False)]
+                outputs=[batch_model_dropdown, batch_model_text]
             )
             
             batch_refresh_models_btn.click(
@@ -598,16 +776,25 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
                 outputs=batch_model_dropdown
             )
             
+            # Function to update batch template description
+            batch_template_dropdown.change(
+                fn=update_template_info,
+                inputs=[batch_template_dropdown],
+                outputs=[batch_template_info]
+            )
+            
             # Modified batch process function
-            def batch_process_with_model_selection(backend, mode, chunking, provider,
+            def batch_process_with_model_selection(template_name, backend, mode, chunking, provider,
                                                    model_dropdown_val, model_text_val, progress=gr.Progress()):
                 model = model_dropdown_val if provider == "ollama" else model_text_val
-                return batch_process_documents(backend, mode, chunking, provider, model, progress)
+                template_key = template_choices.get(template_name, list(template_choices.values())[0])
+                return batch_process_documents(backend, mode, chunking, provider, model, template_key, progress)
             
             # Wire up batch processing
             batch_btn.click(
                 fn=batch_process_with_model_selection,
                 inputs=[
+                    batch_template_dropdown,
                     batch_backend,
                     batch_mode,
                     batch_chunking,
@@ -657,6 +844,26 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
             
             ## Configuration
             
+            ### Templates
+            Templates define the structure of data to extract from documents. Each template is a Pydantic model that:
+            - Defines entities (nodes) and relationships (edges)
+            - Provides field descriptions to guide the LLM
+            - Validates extracted data
+            - Generates a knowledge graph
+            
+            **Available Templates:**
+            - Located in `./templates/` directory
+            - Can be customized or extended
+            - Support complex nested structures
+            - Include validation and normalization
+            
+            **Creating Custom Templates:**
+            1. Create a new `.py` file in `./templates/`
+            2. Define Pydantic models with `graph_id_fields`
+            3. Use the `edge()` helper for relationships
+            4. Add field descriptions to guide extraction
+            5. Restart the app to load new templates
+            
             ### Backends
             - **LLM:** Text-based extraction (best for PDFs, documents)
             - **VLM:** Vision-based extraction (best for images, forms)
@@ -674,6 +881,7 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
             - **Refresh:** Click "🔄 Refresh Ollama Models" to update the list
             
             #### Remote Providers
+            - **watsonx:** IBM watsonx models (requires WO_INSTANCE and WO_API_KEY in .env)
             - **OpenAI:** GPT-4, GPT-3.5-turbo (requires API key)
             - **Mistral:** mistral-large-latest, mistral-medium (requires API key)
             - **Gemini:** gemini-pro (requires API key)
@@ -703,9 +911,20 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
             ```
             
             ### Remote Provider Errors
-            - Verify your API key is correct
+            - **watsonx:** Verify WO_INSTANCE and WO_API_KEY in .env file
+            - **Other providers:** Verify your API key is correct
             - Check your API quota/credits
             - Ensure you have network connectivity
+            
+            ### Environment Configuration
+            ```bash
+            # Copy the template and configure
+            cp .env.template .env
+            
+            # Edit .env with your settings
+            # For watsonx: Set WO_INSTANCE and WO_API_KEY
+            # For other providers: Set respective API keys
+            ```
             
             ### Out of Memory
             - Enable chunking (recommended for large documents)

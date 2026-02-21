@@ -11,13 +11,17 @@
 ## 🚀 Quick Start
 
 ```bash
-# 1. Install Ollama
+# 1. Configure environment (optional)
+cp .env.template .env
+# Edit .env with your settings (Ollama, watsonx, or other providers)
+
+# 2. Install Ollama (for local inference)
 curl -fsSL https://ollama.com/install.sh | sh
 
-# 2. Pull a model (e.g., granite4 or llama3)
+# 3. Pull a model (e.g., granite4 or llama3)
 ollama pull granite4
 
-# 3. Launch application
+# 4. Launch application
 ./scripts/launch.sh
 ```
 
@@ -28,6 +32,7 @@ The application will be available at **http://localhost:7860**
 All documentation is available in the [`Docs/`](Docs/) directory:
 
 - **[Quick Start Guide](Docs/QUICKSTART.md)** - Get started in 5 minutes
+- **[Environment Setup](Docs/ENVIRONMENT_SETUP.md)** - Configure providers and API keys
 - **[Full Documentation](Docs/FULL_DOCUMENTATION.md)** - Comprehensive guide with all features
 - **[User Guide](Docs/user-guide.md)** - Complete usage instructions
 - **[Architecture](Docs/architecture.md)** - System design and components
@@ -42,7 +47,8 @@ All documentation is available in the [`Docs/`](Docs/) directory:
 - 🎯 **Intuitive Web UI** - User-friendly Gradio interface
 - 📄 **Multiple Formats** - PDF, images, markdown, Office documents
 - 🔄 **Batch Processing** - Process multiple documents simultaneously
-- 🧠 **Local & Remote LLMs** - Ollama (local) or cloud providers (OpenAI, Mistral, Gemini)
+- 🧠 **Multiple LLM Providers** - Ollama (local), watsonx, OpenAI, Mistral, Gemini
+- 🔧 **Environment Configuration** - Easy setup with .env file
 - 📊 **Interactive Graphs** - Visualize knowledge graphs
 - 💾 **Multiple Exports** - CSV, JSON, HTML formats
 - 🐳 **Container Ready** - Docker and Kubernetes support
@@ -59,8 +65,10 @@ All documentation is available in the [`Docs/`](Docs/) directory:
 
 ```
 docling-graph-showcase/
-├── app.py                  # Main Gradio application
-├── requirements.txt        # Python dependencies
+├── README.md              # Main README (this file)
+├── .env.template          # Environment configuration template
+├── app.py                 # Main Gradio application
+├── requirements.txt       # Python dependencies
 ├── Dockerfile             # Container image
 ├── input/                 # Input documents
 ├── output/                # Processed results
@@ -68,6 +76,22 @@ docling-graph-showcase/
 ├── Docs/                  # 📚 All documentation
 └── k8s/                   # Kubernetes manifests
 ```
+
+## ⚙️ Configuration
+
+Copy `.env.template` to `.env` and configure your settings:
+
+```bash
+cp .env.template .env
+```
+
+### Supported Providers
+
+- **Ollama** (Local) - No API key needed, just install and pull models
+- **watsonx** - Set `WO_INSTANCE` and `WO_API_KEY`
+- **OpenAI** - Set `OPENAI_API_KEY`
+- **Mistral** - Set `MISTRAL_API_KEY`
+- **Gemini** - Set `GEMINI_API_KEY`
 
 ## 🛠️ Scripts
 
