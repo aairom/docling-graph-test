@@ -66,7 +66,7 @@ def process_document(
     provider: str,
     model: str,
     progress=gr.Progress()
-) -> Tuple[str, str, str, str]:
+) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
     """
     Process a single document using docling-graph.
     
@@ -81,6 +81,7 @@ def process_document(
         
     Returns:
         Tuple of (status_message, graph_html_path, nodes_csv_path, edges_csv_path)
+        File paths may be None if files weren't generated
     """
     try:
         progress(0.0, desc="🔧 Initializing...")
@@ -93,7 +94,7 @@ def process_document(
         # Prepare source path
         source_path = INPUT_DIR / file_path
         if not source_path.exists():
-            return f"Error: File not found: {file_path}", "", "", ""
+            return f"Error: File not found: {file_path}", None, None, None
         
         progress(0.1, desc="📋 Configuring pipeline...")
         
@@ -184,9 +185,10 @@ def process_document(
         nodes_csv = list(output_subdir.glob("*nodes*.csv"))
         edges_csv = list(output_subdir.glob("*edges*.csv"))
         
-        graph_html_path = str(graph_html[0]) if graph_html else ""
-        nodes_csv_path = str(nodes_csv[0]) if nodes_csv else ""
-        edges_csv_path = str(edges_csv[0]) if edges_csv else ""
+        # Return None instead of empty string if files don't exist (Gradio handles None properly)
+        graph_html_path = str(graph_html[0]) if graph_html else None
+        nodes_csv_path = str(nodes_csv[0]) if nodes_csv else None
+        edges_csv_path = str(edges_csv[0]) if edges_csv else None
         
         progress(1.0, desc="✅ Complete!")
         
@@ -234,8 +236,10 @@ def process_document(
 - Check if model is available: `ollama list`
 - Verify input file exists in ./input directory
 - Check API keys if using remote providers
+- For large documents, processing may take 30-60 minutes
+- Check logs: `tail -f logs/docling-graph-app.log`
 """
-        return error_msg, "", "", ""
+        return error_msg, None, None, None
 
 
 def batch_process_documents(
