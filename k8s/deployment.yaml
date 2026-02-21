@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: docling-graph-app
+  labels:
+    app: docling-graph
+    component: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: docling-graph
+      component: web
+  template:
+    metadata:
+      labels:
+        app: docling-graph
+        component: web
+    spec:
+      containers:
+      - name: docling-graph
+        image: docling-graph-app:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 7860
+          name: http
+          protocol: TCP
+        env:
+        - name: GRADIO_SERVER_NAME
+          value: "0.0.0.0"
+        - name: GRADIO_SERVER_PORT
+          value: "7860"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        # Ollama configuration (if using external Ollama service)
+        - name: OLLAMA_BASE_URL
+          value: "http://ollama-service:11434"
+        # Optional: API keys from secrets
+        # - name: MISTRAL_API_KEY
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: llm-api-keys
+        #       key: mistral-api-key
+        # - name: OPENAI_API_KEY
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: llm-api-keys
+        #       key: openai-api-key
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: input-volume
+          mountPath: /app/input
+        - name: output-volume
+          mountPath: /app/output
+        - name: logs-volume
+          mountPath: /app/logs
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 7860
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 7860
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: input-volume
+        persistentVolumeClaim:
+          claimName: docling-graph-input-pvc
+      - name: output-volume
+        persistentVolumeClaim:
+          claimName: docling-graph-output-pvc
+      - name: logs-volume
+        emptyDir: {}
+
+# Made with Bob

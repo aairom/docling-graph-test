@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: docling-graph-config
+  labels:
+    app: docling-graph
+data:
+  # Application configuration
+  GRADIO_SERVER_NAME: "0.0.0.0"
+  GRADIO_SERVER_PORT: "7860"
+  PYTHONUNBUFFERED: "1"
+  
+  # Ollama configuration
+  OLLAMA_BASE_URL: "http://ollama-service:11434"
+  OLLAMA_MODEL: "granite4"
+  
+  # Processing defaults
+  DEFAULT_BACKEND: "llm"
+  DEFAULT_PROCESSING_MODE: "many-to-one"
+  DEFAULT_USE_CHUNKING: "true"
+
+# Made with Bob
