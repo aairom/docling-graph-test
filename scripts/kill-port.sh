@@ -3,7 +3,7 @@
 # Usage: ./kill-port.sh [PORT]
 # Default port is 7860 (the port that needs to be freed before app starts on 7861)
 
-PORT=${1:-7860}
+PORT=${1:-7861}
 
 echo "🔍 Checking for processes on port $PORT..."
 
