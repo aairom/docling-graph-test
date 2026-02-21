@@ -17,3 +17,4 @@ litellm>=1.0.0
 # Additional utilities
 python-dotenv>=1.0.0
 networkx>=3.0
+requests>=2.31.0

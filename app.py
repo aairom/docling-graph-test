@@ -7,9 +7,10 @@ import os
 import sys
 from pathlib import Path
 from datetime import datetime
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 import json
 import traceback
+import requests
 
 import gradio as gr
 from rich.console import Console
@@ -39,6 +40,34 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 # Ollama configuration for local LLM
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "granite4"
+
+
+def get_ollama_models() -> List[str]:
+    """Fetch available Ollama models from the local Ollama instance."""
+    try:
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            models = [model["name"] for model in data.get("models", [])]
+            return sorted(models) if models else [OLLAMA_MODEL]
+        else:
+            console.print(f"[yellow]Warning: Could not fetch Ollama models (status {response.status_code})[/yellow]")
+            return [OLLAMA_MODEL]
+    except requests.exceptions.RequestException as e:
+        console.print(f"[yellow]Warning: Ollama not available - {str(e)}[/yellow]")
+        return [OLLAMA_MODEL]
+
+
+def check_ollama_status() -> Tuple[bool, str]:
+    """Check if Ollama is running and return status."""
+    try:
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+        if response.status_code == 200:
+            models = get_ollama_models()
+            return True, f"🟢 Ollama Running ({len(models)} models available)"
+        return False, "🟡 Ollama responding but no models found"
+    except requests.exceptions.RequestException:
+        return False, "🔴 Ollama Not Running"
 
 
 def get_timestamp() -> str:
@@ -318,16 +347,20 @@ def batch_process_documents(
 
 # Create Gradio Interface
 with gr.Blocks(title="Docling-Graph Showcase") as app:
-    gr.Markdown("""
+    # Check Ollama status at startup
+    ollama_running, ollama_status = check_ollama_status()
+    available_models = get_ollama_models() if ollama_running else [OLLAMA_MODEL]
+    
+    gr.Markdown(f"""
     # 🔍 Docling-Graph Showcase
     
-    Transform documents into validated knowledge graphs using docling-graph with local Ollama/Granite4 LLM.
+    Transform documents into validated knowledge graphs using docling-graph with local or remote LLMs.
     
-    **Status:** 🟢 Application Running | **Model:** Granite4 | **Provider:** Ollama (Local)
+    **Status:** {ollama_status}
     
     **Features:**
     - 📄 Individual or batch document processing
-    - 🧠 Local LLM inference with Ollama
+    - 🧠 Local LLM inference with Ollama or remote providers
     - 📊 Interactive graph visualization
     - 💾 CSV export for nodes and edges
     
@@ -375,11 +408,40 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
                         info="LLM provider (ollama for local)"
                     )
                     
-                    model_text = gr.Textbox(
-                        value=OLLAMA_MODEL,
-                        label="Model Name",
-                        info="Model identifier (e.g., granite3.1:8b for Ollama)"
+                    # Dynamic model selection based on provider
+                    model_dropdown = gr.Dropdown(
+                        choices=available_models,
+                        value=available_models[0] if available_models else OLLAMA_MODEL,
+                        label="Ollama Model",
+                        info="Select from available Ollama models",
+                        visible=True,
+                        allow_custom_value=True
                     )
+                    
+                    model_text = gr.Textbox(
+                        value="",
+                        label="Model Name (for non-Ollama providers)",
+                        info="e.g., gpt-4, mistral-large, gemini-pro",
+                        visible=False
+                    )
+                    
+                    refresh_models_btn = gr.Button("🔄 Refresh Ollama Models", size="sm")
+                    
+                    # API Key fields for remote providers
+                    with gr.Accordion("🔑 API Configuration (for remote providers)", open=False):
+                        api_key_text = gr.Textbox(
+                            value="",
+                            label="API Key",
+                            type="password",
+                            info="Required for OpenAI, Mistral, or Gemini",
+                            visible=False
+                        )
+                        api_base_text = gr.Textbox(
+                            value="",
+                            label="API Base URL (optional)",
+                            info="Custom API endpoint if needed",
+                            visible=False
+                        )
                     
                     process_btn = gr.Button("🚀 Process Document", variant="primary")
                 
@@ -391,20 +453,72 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
                         nodes_file = gr.File(label="Nodes CSV")
                         edges_file = gr.File(label="Edges CSV")
             
+            # Function to handle provider change
+            def update_model_inputs(provider):
+                """Update model input fields based on selected provider."""
+                if provider == "ollama":
+                    models = get_ollama_models()
+                    return (
+                        gr.Dropdown(visible=True, choices=models, value=models[0] if models else OLLAMA_MODEL),
+                        gr.Textbox(visible=False),
+                        gr.Textbox(visible=False),
+                        gr.Textbox(visible=False)
+                    )
+                else:
+                    # For remote providers, show text input and API key
+                    default_models = {
+                        "openai": "gpt-4",
+                        "mistral": "mistral-large-latest",
+                        "gemini": "gemini-pro"
+                    }
+                    return (
+                        gr.Dropdown(visible=False),
+                        gr.Textbox(visible=True, value=default_models.get(provider, "")),
+                        gr.Textbox(visible=True),
+                        gr.Textbox(visible=True)
+                    )
+            
+            def refresh_ollama_models():
+                """Refresh the list of available Ollama models."""
+                models = get_ollama_models()
+                return gr.Dropdown(choices=models, value=models[0] if models else OLLAMA_MODEL)
+            
+            def get_model_value(provider, model_dropdown_value, model_text_value):
+                """Get the appropriate model value based on provider."""
+                return model_dropdown_value if provider == "ollama" else model_text_value
+            
             # Wire up individual processing
             refresh_btn.click(
                 fn=lambda: gr.Dropdown(choices=list_input_files()),
                 outputs=file_dropdown
             )
             
+            provider_dropdown.change(
+                fn=update_model_inputs,
+                inputs=[provider_dropdown],
+                outputs=[model_dropdown, model_text, api_key_text, api_base_text]
+            )
+            
+            refresh_models_btn.click(
+                fn=refresh_ollama_models,
+                outputs=model_dropdown
+            )
+            
+            # Modified process function to handle both model inputs
+            def process_with_model_selection(file_path, backend, mode, chunking, provider,
+                                            model_dropdown_val, model_text_val, progress=gr.Progress()):
+                model = model_dropdown_val if provider == "ollama" else model_text_val
+                return process_document(file_path, backend, mode, chunking, provider, model, progress)
+            
             process_btn.click(
-                fn=process_document,
+                fn=process_with_model_selection,
                 inputs=[
                     file_dropdown,
                     backend_radio,
                     mode_radio,
                     chunking_check,
                     provider_dropdown,
+                    model_dropdown,
                     model_text
                 ],
                 outputs=[status_output, graph_file, nodes_file, edges_file]
@@ -439,25 +553,67 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
                         label="Provider"
                     )
                     
-                    batch_model = gr.Textbox(
-                        value=OLLAMA_MODEL,
-                        label="Model Name"
+                    # Dynamic model selection for batch processing
+                    batch_model_dropdown = gr.Dropdown(
+                        choices=available_models,
+                        value=available_models[0] if available_models else OLLAMA_MODEL,
+                        label="Ollama Model",
+                        info="Select from available Ollama models",
+                        visible=True,
+                        allow_custom_value=True
                     )
+                    
+                    batch_model_text = gr.Textbox(
+                        value="",
+                        label="Model Name (for non-Ollama providers)",
+                        info="e.g., gpt-4, mistral-large, gemini-pro",
+                        visible=False
+                    )
+                    
+                    batch_refresh_models_btn = gr.Button("🔄 Refresh Ollama Models", size="sm")
+                    
+                    with gr.Accordion("🔑 API Configuration (for remote providers)", open=False):
+                        batch_api_key_text = gr.Textbox(
+                            value="",
+                            label="API Key",
+                            type="password",
+                            info="Required for OpenAI, Mistral, or Gemini",
+                            visible=False
+                        )
                     
                     batch_btn = gr.Button("🚀 Process All Documents", variant="primary")
                 
                 with gr.Column(scale=2):
                     batch_status = gr.Markdown(label="Batch Status")
             
+            # Wire up batch processing provider change
+            batch_provider.change(
+                fn=update_model_inputs,
+                inputs=[batch_provider],
+                outputs=[batch_model_dropdown, batch_model_text, batch_api_key_text, gr.Textbox(visible=False)]
+            )
+            
+            batch_refresh_models_btn.click(
+                fn=refresh_ollama_models,
+                outputs=batch_model_dropdown
+            )
+            
+            # Modified batch process function
+            def batch_process_with_model_selection(backend, mode, chunking, provider,
+                                                   model_dropdown_val, model_text_val, progress=gr.Progress()):
+                model = model_dropdown_val if provider == "ollama" else model_text_val
+                return batch_process_documents(backend, mode, chunking, provider, model, progress)
+            
             # Wire up batch processing
             batch_btn.click(
-                fn=batch_process_documents,
+                fn=batch_process_with_model_selection,
                 inputs=[
                     batch_backend,
                     batch_mode,
                     batch_chunking,
                     batch_provider,
-                    batch_model
+                    batch_model_dropdown,
+                    batch_model_text
                 ],
                 outputs=batch_status
             )
@@ -467,7 +623,7 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
             gr.Markdown("""
             ## Getting Started
             
-            ### 1. Setup Ollama
+            ### 1. Setup Ollama (for local inference)
             ```bash
             # Install Ollama
             curl -fsSL https://ollama.com/install.sh | sh
@@ -475,21 +631,27 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
             # Start Ollama service
             ollama serve
             
-            # Pull Granite model
-            ollama pull granite3.1:8b
+            # Pull a model (examples)
+            ollama pull granite4
+            ollama pull llama3
+            ollama pull mistral
             ```
             
             ### 2. Add Documents
             Place your documents (PDF, images, markdown, etc.) in the `./input` directory.
             
-            ### 3. Process Documents
+            ### 3. Select Provider & Model
+            - **Ollama (Local):** Select from your installed models using the dropdown
+            - **Remote Providers:** Choose OpenAI, Mistral, or Gemini and enter your API key
+            
+            ### 4. Process Documents
             - **Individual:** Select a file and click "Process Document"
             - **Batch:** Click "Process All Documents" to process everything
             
-            ### 4. View Results
+            ### 5. View Results
             Results are saved in `./output` with timestamps:
-            - `summary_TIMESTAMP.md` - Processing summary
-            - `graph.html` - Interactive visualization
+            - `report_TIMESTAMP.md` - Processing summary
+            - `graph_TIMESTAMP.html` - Interactive visualization
             - `nodes.csv` - Extracted entities
             - `edges.csv` - Relationships
             
@@ -504,10 +666,17 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
             - **many-to-one:** All pages merged into single output
             
             ### Providers
-            - **ollama:** Local inference (recommended)
-            - **mistral:** Mistral AI API (requires MISTRAL_API_KEY)
-            - **openai:** OpenAI API (requires OPENAI_API_KEY)
-            - **gemini:** Google Gemini API (requires GEMINI_API_KEY)
+            
+            #### Ollama (Local - Recommended)
+            - **Advantages:** Privacy, no API costs, works offline
+            - **Models:** Any model you've pulled (granite4, llama3, mistral, etc.)
+            - **Setup:** Just install Ollama and pull models
+            - **Refresh:** Click "🔄 Refresh Ollama Models" to update the list
+            
+            #### Remote Providers
+            - **OpenAI:** GPT-4, GPT-3.5-turbo (requires API key)
+            - **Mistral:** mistral-large-latest, mistral-medium (requires API key)
+            - **Gemini:** gemini-pro (requires API key)
             
             ## Troubleshooting
             
@@ -520,18 +689,27 @@ with gr.Blocks(title="Docling-Graph Showcase") as app:
             ollama serve
             ```
             
-            ### Model Not Found
+            ### No Models Available
             ```bash
             # List available models
             ollama list
             
-            # Pull required model
-            ollama pull granite3.1:8b
+            # Pull a model
+            ollama pull granite4
+            ollama pull llama3
+            
+            # Refresh the model list in the UI
+            # Click "🔄 Refresh Ollama Models" button
             ```
             
+            ### Remote Provider Errors
+            - Verify your API key is correct
+            - Check your API quota/credits
+            - Ensure you have network connectivity
+            
             ### Out of Memory
-            - Enable chunking
-            - Use smaller model
+            - Enable chunking (recommended for large documents)
+            - Use a smaller model
             - Process fewer documents at once
             
             ## Documentation
