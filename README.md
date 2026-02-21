@@ -28,12 +28,14 @@ The application will be available at **http://localhost:7860**
 All documentation is available in the [`Docs/`](Docs/) directory:
 
 - **[Quick Start Guide](Docs/QUICKSTART.md)** - Get started in 5 minutes
+- **[Full Documentation](Docs/FULL_DOCUMENTATION.md)** - Comprehensive guide with all features
 - **[User Guide](Docs/user-guide.md)** - Complete usage instructions
 - **[Architecture](Docs/architecture.md)** - System design and components
 - **[Deployment Guide](Docs/deployment-guide.md)** - Production deployment
 - **[API Reference](Docs/api-reference.md)** - Function documentation
 - **[Project Summary](Docs/PROJECT_SUMMARY.md)** - Project overview
 - **[Known Issues](Docs/KNOWN_ISSUES.md)** - Troubleshooting guide
+- **[Changelog](Docs/CHANGELOG.md)** - Recent updates and enhancements
 
 ## ✨ Key Features
 

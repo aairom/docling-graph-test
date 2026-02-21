@@ -12,11 +12,11 @@
 
 ### Changed
 - **Documentation Structure**: Moved all documentation files to `/Docs` folder for better organization
-  - `README.md` → `Docs/README.md` (original comprehensive README)
+  - Original comprehensive README → `Docs/FULL_DOCUMENTATION.md`
   - `PROJECT_SUMMARY.md` → `Docs/PROJECT_SUMMARY.md`
   - `QUICKSTART.md` → `Docs/QUICKSTART.md`
   - `KNOWN_ISSUES.md` → `Docs/KNOWN_ISSUES.md`
-- **Root README**: Created new concise README.md in root that points to documentation
+- **Root README**: Kept concise README.md in root with links to all documentation in `/Docs`
 - **Model Selection UI**: Changed from text input to dropdown for Ollama models
 - **Provider Selection**: Enhanced to show/hide relevant configuration fields based on provider choice
 
@@ -48,11 +48,11 @@
 ### Files Modified
 - `app.py` - Enhanced with dynamic model detection and improved UI
 - `requirements.txt` - Added requests library
-- `README.md` - New concise version pointing to Docs
+- `README.md` - Updated with links to all documentation in `/Docs`
 - Created `Docs/CHANGELOG.md` - This file
 
-### Files Moved
-- `README.md` → `Docs/README.md`
+### Files Moved to /Docs
+- Original comprehensive README → `Docs/FULL_DOCUMENTATION.md`
 - `PROJECT_SUMMARY.md` → `Docs/PROJECT_SUMMARY.md`
 - `QUICKSTART.md` → `Docs/QUICKSTART.md`
 - `KNOWN_ISSUES.md` → `Docs/KNOWN_ISSUES.md`
