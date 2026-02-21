@@ -145,7 +145,7 @@ def process_document(
         models = context.extracted_models
         
         # Export results manually
-        from docling_graph.core import CSVExporter, JSONExporter
+        from docling_graph.core import CSVExporter, JSONExporter, InteractiveVisualizer
         from pathlib import Path
         
         # Export nodes and edges as CSV
@@ -153,10 +153,15 @@ def process_document(
         csv_output_path = output_subdir / f"graph_{timestamp}"
         csv_exporter.export(graph=graph, output_path=csv_output_path)
         
-        # Export as JSON for visualization
+        # Export as JSON
         json_exporter = JSONExporter()
         json_output_path = output_subdir / f"graph_{timestamp}.json"
         json_exporter.export(graph=graph, output_path=json_output_path)
+        
+        # Generate HTML visualization
+        visualizer = InteractiveVisualizer()
+        html_output_path = output_subdir / f"graph_{timestamp}.html"
+        visualizer.save_cytoscape_graph(graph=graph, output_path=html_output_path)
         
         progress(0.95, desc="💾 Generating outputs...")
         console.print("  • Saving results")
@@ -197,10 +202,10 @@ def process_document(
             f.write(f"- **document.md:** Markdown version of the document\n")
             f.write(f"- **report.md:** This extraction report\n")
         
-        # Find generated files
+        # Find generated files (CSV files are in subdirectory)
         graph_html = list(output_subdir.glob("*.html"))
-        nodes_csv = list(output_subdir.glob("*nodes*.csv"))
-        edges_csv = list(output_subdir.glob("*edges*.csv"))
+        nodes_csv = list(output_subdir.glob("**/nodes.csv"))
+        edges_csv = list(output_subdir.glob("**/edges.csv"))
         
         # Return None instead of empty string if files don't exist (Gradio handles None properly)
         graph_html_path = str(graph_html[0]) if graph_html else None
