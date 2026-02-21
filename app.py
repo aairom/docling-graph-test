@@ -137,12 +137,29 @@ def process_document(
         # Run pipeline
         context = run_pipeline(config)
         
-        progress(0.9, desc="💾 Generating outputs...")
-        console.print("  • Saving results")
+        progress(0.85, desc="💾 Exporting results...")
+        console.print("  • Exporting to CSV and HTML")
         
         # Get results
         graph = context.knowledge_graph
         models = context.extracted_models
+        
+        # Export results manually
+        from docling_graph.core import CSVExporter, JSONExporter
+        from pathlib import Path
+        
+        # Export nodes and edges as CSV
+        csv_exporter = CSVExporter()
+        csv_output_path = output_subdir / f"graph_{timestamp}"
+        csv_exporter.export(graph=graph, output_path=csv_output_path)
+        
+        # Export as JSON for visualization
+        json_exporter = JSONExporter()
+        json_output_path = output_subdir / f"graph_{timestamp}.json"
+        json_exporter.export(graph=graph, output_path=json_output_path)
+        
+        progress(0.95, desc="💾 Generating outputs...")
+        console.print("  • Saving results")
         
         # Save results with timestamp
         timestamp_str = timestamp
